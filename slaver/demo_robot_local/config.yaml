@@ -1,1 +1,31 @@
 # Adding robot config
+
+# Vehicle CARLA Configuration
+vehicle_carla:
+  # Network Configuration
+  network:
+    # CARLA control command receiver
+    carla_host: "192.168.1.1"
+    carla_port: 23456
+    # Sensor data sender
+    sensor_host: "192.168.1.101"
+    gnss_imu_port: 12345
+    lidar_port: 5005
+
+  # Vehicle Control Parameters
+  control:
+    max_steer: 1.0
+    max_throttle: 1.0
+    max_brake: 1.0
+
+  # Sensor Configuration
+  sensor:
+    timeout: 2.0  # seconds
+
+  # Simulation Configuration
+  simulation:
+    default_scenario: "default"
+
+  # Logging Configuration
+  logging:
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
