@@ -5,7 +5,7 @@ vehicle_carla:
   # Network Configuration
   network:
     # CARLA control command receiver
-    carla_host: "192.168.1.1"
+    carla_host: "127.0.0.1"
     carla_port: 23456
     # Sensor data sender
     sensor_host: "192.168.1.101"

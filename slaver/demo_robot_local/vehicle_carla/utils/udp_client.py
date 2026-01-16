@@ -7,7 +7,7 @@ from typing import Dict, Optional
 class UDPClient:
     """UDP client for sending control commands to CARLA"""
 
-    def __init__(self, host: str = "192.168.1.1", port: int = 23456):
+    def __init__(self, host: str = "127.0.0.1", port: int = 23456):
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

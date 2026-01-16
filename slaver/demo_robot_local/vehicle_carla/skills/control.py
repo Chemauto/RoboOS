@@ -8,7 +8,7 @@ logger = setup_logger("vehicle_control")
 class VehicleController:
     """Vehicle control functionality"""
 
-    def __init__(self, host: str = "192.168.1.1", port: int = 23456):
+    def __init__(self, host: str = "127.0.0.1", port: int = 23456):
         self.udp_client = UDPClient(host, port)
         logger.info(f"VehicleController initialized: {host}:{port}")
 
