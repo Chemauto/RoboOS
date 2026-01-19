@@ -188,7 +188,7 @@ class RobotManager:
 
         if call_type == "local":
             server_params = StdioServerParameters(
-                command="python", args=[config["robot"]["path"] + "/skill.py"], env=None
+                command=sys.executable, args=[config["robot"]["path"] + "/skill.py"], env=None
             )
             mcp_client = stdio_client(server_params)
 

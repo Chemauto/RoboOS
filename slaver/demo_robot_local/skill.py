@@ -1,218 +1,136 @@
+"""
+RoboOS 机器人技能统一入口 (Robot Skills Entry Point)
+
+这是 RoboOS 机器人系统的主入口文件，负责：
+1. 初始化 MCP 服务器
+2. 导入并注册所有功能模块
+3. 管理信号处理和资源清理
+
+模块列表：
+    - base.py: 底盘控制模块（导航、移动）
+    - arm.py: 机械臂控制模块（关节运动、复位）
+    - grasp.py: 抓取控制模块（通过开发板抓取物体）
+    - vehicle_simulation.py: CARLA仿真管理模块（启动、停止、状态查询）
+    - vehicle_sensor.py: 车辆传感器模块（GNSS、IMU、状态读取）
+    - vehicle_control.py: 车辆控制模块（转向、油门、刹车）
+    - example.py: 示例模块（添加新功能的参考模板）
+
+添加新功能：
+    1. 创建新的模块文件（参考 example.py）
+    2. 在下面导入模块的 register_tools 函数
+    3. 在 main() 函数中调用 register_tools(mcp)
+"""
+
+import sys
+import os
+import signal
+import atexit
 from mcp.server.fastmcp import FastMCP
-from vehicle_carla.skills.control import VehicleController
-from vehicle_carla.skills.sensor import SensorReader
-from vehicle_carla.skills.simulation import SimulationManager
+
+# ==============================================================================
+# 1. 导入各功能模块的注册函数
+# ==============================================================================
+# 原有模块（暂时注释掉，因为缺少依赖）
+# from module.base import register_tools as register_base_tools
+# from module.arm import register_tools as register_arm_tools, cleanup_arm, initialize_arm
+# from module.grasp import register_tools as register_grasp_tools
+# from module.example import register_tools as register_example_tools
+
+# 车辆CARLA模块
+from module.vehicle_simulation import register_tools as register_vehicle_simulation_tools
+from module.vehicle_sensor import register_tools as register_vehicle_sensor_tools
+from module.vehicle_control import register_tools as register_vehicle_control_tools
+
+# ==============================================================================
+# 2. 全局变量和初始化
+# ==============================================================================
 
 # Initialize FastMCP server
 mcp = FastMCP("robots")
 
-# Initialize vehicle_carla modules
-controller = VehicleController()
-sensor = SensorReader()
-simulation = SimulationManager()
+
+def signal_handler(signum, frame):
+    """信号处理器 - 处理Ctrl+C等信号"""
+    print(f"\n[skill.py] 收到信号 {signum}，正在清理资源...", file=sys.stderr)
+    # cleanup_arm()  # 已注释掉，因为arm模块未导入
+    sys.exit(0)
 
 
-@mcp.tool()
-async def navigate_to_target(target: str) -> tuple[str, dict]:
-    """Navigate to target, do not call when Navigation to target has been successfully performed.
-    Args:
-        target: String, Represents the navigation destination.
+# 注册退出处理函数
+# atexit.register(cleanup_arm)  # 已注释掉，因为arm模块未导入
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+
+# ==============================================================================
+# 3. 注册所有模块的工具函数
+# ==============================================================================
+
+def register_all_modules():
     """
-    result = f"Navigation to {target} has been successfully performed."
-    print(result)
-    return result, {"position": f"{target}"}
+    注册所有功能模块到 MCP 服务器
 
-
-@mcp.tool()
-async def grasp_object(object: str) -> tuple[str, dict]:
-    """Pick up the object, do not call when object has been successfully grasped.
-    Args:
-        object: String, Represents which to grasp.
+    在这里添加新模块的注册调用：
+        module_name.register_tools(mcp)
     """
-    result = f"{object} has been successfully grasped."
-    print(result)
-    return result, {"grasped": f"{object}"}
+    print("=" * 60, file=sys.stderr)
+    print("[skill.py] 开始注册机器人技能模块...", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+
+    # 注册底盘控制模块
+    # register_base_tools(mcp)
+
+    # 注册机械臂控制模块
+    # register_arm_tools(mcp)
+
+    # 注册抓取控制模块
+    # register_grasp_tools(mcp)
+
+    # 注册车辆CARLA模块
+    register_vehicle_simulation_tools(mcp)
+    register_vehicle_sensor_tools(mcp)
+    register_vehicle_control_tools(mcp)
+
+    # 注册示例模块（可选，实际使用时可以注释掉）
+    # register_example_tools(mcp)
+
+    # 在这里添加新模块的注册，例如：
+    # from camera import register_tools as register_camera_tools
+    # register_camera_tools(mcp)
+
+    # from sensor import register_tools as register_sensor_tools
+    # register_sensor_tools(mcp)
+
+    print("=" * 60, file=sys.stderr)
+    print("[skill.py] ✓ 所有模块注册完成", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
 
 
-@mcp.tool()
-async def place_to_affordance(affordance: str, object: str = None) -> tuple[str, dict]:
-    """Place the grasped object in affordance, do not call when object has been successfully placed on affordance."
-    Args:
-        affordance: String, Represents where the object to place.
-        object: String, Represents the object has been grasped.
-    """
-    result = f"{object} has been successfully placed on {affordance}."
-    print(result)
-    return result, {"grasped": f"None"}
-
-
-# ========== Vehicle CARLA Skills ==========
-# 以下是 Vehicle CARLA 仿真系统的 11 个 skills
-# 用于在 CARLA 仿真器中控制车辆、获取传感器数据和管理仿真
-
-# ===== 车辆控制类 Skills (5个) =====
-
-@mcp.tool()
-async def set_vehicle_control(steer: float, throttle: float, brake: float) -> str:
-    """设置车辆控制指令
-
-    功能：通过 UDP 发送控制命令到 CARLA 仿真器，控制车辆的转向、油门和制动
-    使用场景：需要精确控制车辆行为时使用
-
-    Args:
-        steer: 转向角 [-1.0, 1.0]，负值=左转，正值=右转
-        throttle: 油门 [0.0, 1.0]，0=无油门，1=最大油门
-        brake: 制动 [0.0, 1.0]，0=无制动，1=最大制动
-
-    Returns:
-        执行状态消息
-    """
-    return controller.set_vehicle_control(steer, throttle, brake)
-
-
-@mcp.tool()
-async def emergency_brake() -> str:
-    """紧急制动
-
-    功能：立即停止车辆，发送最大制动指令
-    使用场景：紧急情况下需要立即停车
-
-    Returns:
-        制动状态消息
-    """
-    return controller.emergency_brake()
-
-
-@mcp.tool()
-async def stop_vehicle() -> str:
-    """平稳停车
-
-    功能：平稳地停止车辆
-    使用场景：正常停车时使用
-
-    Returns:
-        停车状态消息
-    """
-    return controller.stop_vehicle()
-
-
-@mcp.tool()
-async def move_forward(speed: float) -> str:
-    """前进到指定速度
-
-    功能：控制车辆以指定速度前进
-    使用场景：需要车辆匀速前进时使用
-
-    Args:
-        speed: 目标速度，单位 m/s（米/秒）
-
-    Returns:
-        当前速度状态消息
-    """
-    return controller.move_forward(speed)
-
-
-@mcp.tool()
-async def turn_vehicle(angle: float) -> str:
-    """转向到指定角度
-
-    功能：控制车辆转向到指定角度
-    使用场景：需要车辆转弯时使用
-
-    Args:
-        angle: 转向角度（度），正值=右转，负值=左转
-
-    Returns:
-        当前转向角消息
-    """
-    return controller.turn_vehicle(angle)
-
-
-# ===== 传感器数据类 Skills (3个) =====
-
-@mcp.tool()
-async def get_gnss_data() -> str:
-    """获取 GPS 位置数据
-
-    功能：从 CARLA 仿真器接收 GNSS（GPS）传感器数据
-    使用场景：需要获取车辆当前位置坐标时使用
-
-    Returns:
-        x, y, z 坐标信息
-    """
-    return sensor.get_gnss_data()
-
-
-@mcp.tool()
-async def get_imu_data() -> str:
-    """获取 IMU 数据
-
-    功能：从 CARLA 仿真器接收 IMU（惯性测量单元）传感器数据
-    使用场景：需要获取车辆加速度、角速度和航向角时使用
-
-    Returns:
-        加速度、角速度、航向角信息
-    """
-    return sensor.get_imu_data()
-
-
-@mcp.tool()
-async def get_vehicle_status() -> str:
-    """获取车辆综合状态
-
-    功能：获取车辆的综合状态信息（位置、速度、航向）
-    使用场景：需要全面了解车辆当前状态时使用
-
-    Returns:
-        位置、速度、航向综合信息
-    """
-    return sensor.get_vehicle_status()
-
-
-# ===== 仿真管理类 Skills (3个) =====
-
-@mcp.tool()
-async def start_carla_simulation(scenario: str = "default") -> str:
-    """启动 CARLA 仿真
-
-    功能：启动 CARLA 仿真器并加载指定场景
-    使用场景：开始仿真测试前使用
-
-    Args:
-        scenario: 场景名称（可选，默认="default"）
-
-    Returns:
-        仿真启动状态消息
-    """
-    return simulation.start_carla_simulation(scenario)
-
-
-@mcp.tool()
-async def stop_carla_simulation() -> str:
-    """停止 CARLA 仿真
-
-    功能：停止当前运行的 CARLA 仿真
-    使用场景：仿真测试结束后使用
-
-    Returns:
-        仿真停止状态消息
-    """
-    return simulation.stop_carla_simulation()
-
-
-@mcp.tool()
-async def get_simulation_status() -> str:
-    """获取仿真状态
-
-    功能：查询当前仿真的运行状态和时间信息
-    使用场景：需要检查仿真是否正在运行时使用
-
-    Returns:
-        运行状态和时间戳信息
-    """
-    return simulation.get_simulation_status()
-
+# ==============================================================================
+# 4. 主函数
+# ==============================================================================
 
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport="stdio")
+    # 显示启动信息
+    print("\n" + "=" * 60, file=sys.stderr)
+    print("[skill.py] RoboOS 机器人技能服务器启动中...", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print(f"[skill.py] 工作目录: {os.getcwd()}", file=sys.stderr)
+    print(f"[skill.py] Python版本: {sys.version}", file=sys.stderr)
+    print("=" * 60 + "\n", file=sys.stderr)
+
+    # 注册所有模块
+    register_all_modules()
+
+    # 显示服务器信息
+    print("\n[skill.py] MCP 服务器准备就绪，等待工具调用...", file=sys.stderr)
+    print("[skill.py] 按 Ctrl+C 停止服务器\n", file=sys.stderr)
+
+    # 启动 MCP 服务器
+    try:
+        mcp.run(transport="stdio")
+    except KeyboardInterrupt:
+        print("\n[skill.py] 服务器已停止", file=sys.stderr)
+    except Exception as e:
+        print(f"\n[skill.py] ✗ 服务器错误: {e}", file=sys.stderr)
+        sys.exit(1)

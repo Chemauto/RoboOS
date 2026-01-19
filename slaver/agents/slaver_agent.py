@@ -155,7 +155,9 @@ class ToolCallingAgent(MultiStepAgent):
             ),
             level=LogLevel.INFO,
         )
-        observation = await self.tool_executor(tool_name, json.loads(tool_arguments))
+        # Handle both string and dict formats for tool_arguments
+        args = tool_arguments if isinstance(tool_arguments, dict) else json.loads(tool_arguments)
+        observation = await self.tool_executor(tool_name, args)
         observation = observation.content[0].text
         self.logger.log(
             f"Observations: {observation.replace('[', '|')}",  # escape potential rich-tag-like components
@@ -189,7 +191,9 @@ class ToolCallingAgent(MultiStepAgent):
 
         action_type = model_message.content.strip().lower()
 
-        self.scene.apply_action(action_type, json.loads(memory_input["arguments"]))
+        # Handle both string and dict formats for arguments
+        args = memory_input["arguments"] if isinstance(memory_input["arguments"], dict) else json.loads(memory_input["arguments"])
+        self.scene.apply_action(action_type, args)
 
     async def step(self, memory_step: ActionStep) -> Union[None, Any]:
         """
@@ -222,7 +226,26 @@ class ToolCallingAgent(MultiStepAgent):
             tool_name = tool_call.function.name
             tool_arguments = tool_call.function.arguments
         else:
-            return "final_answer"
+            # 尝试从content中解析工具调用(兼容某些模型)
+            try:
+                import json
+                content = model_message.content.strip()
+                if content.startswith('{') and content.endswith('}'):
+                    tool_data = json.loads(content)
+                    if 'name' in tool_data and 'arguments' in tool_data:
+                        tool_name = tool_data['name']
+                        tool_arguments = tool_data['arguments']
+                        self.logger.log_markdown(
+                            content=f"Parsed tool call from content: {tool_name}",
+                            title="Tool Call Parsing:",
+                            level=LogLevel.DEBUG,
+                        )
+                    else:
+                        return "final_answer"
+                else:
+                    return "final_answer"
+            except (json.JSONDecodeError, AttributeError):
+                return "final_answer"
 
         current_call = {"tool_name": tool_name, "tool_arguments": tool_arguments}
 
