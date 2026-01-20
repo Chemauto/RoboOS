@@ -2,7 +2,93 @@
 
 **目录**: `/home/dora/RoboOS/slaver/demo_robot_local/vehicle_carla_test`
 **创建时间**: 2026-01-19
+**最后更新**: 2026-01-20
 **维护者**: RoboOS开发团队
+
+---
+
+## 🎯 完整工具测试指令清单 (2026-01-20新增)
+
+**工具总数**: 20个 (vehicle_control: 12, vehicle_sensor: 5, vehicle_simulation: 3)
+
+### 车辆控制模块 (12个工具)
+
+| # | 工具名称 | UI测试指令 | 对应函数 | 预期结果 |
+|---|---------|-----------|---------|---------|
+| 1 | set_vehicle_control | 设置车辆控制,方向盘角度0.5,油门0.3,刹车0 | `set_vehicle_control(steer=0.5, throttle=0.3, brake=0.0)` | 车辆右转并加速 |
+| 2 | emergency_brake | 紧急刹车 | `emergency_brake()` | 车辆立即停止 |
+| 3 | stop_vehicle | 停止车辆 | `stop_vehicle()` | 车辆平稳停止 |
+| 4 | move_forward | 以5米每秒的速度前进 | `move_forward(speed=5.0)` | 车辆加速至5m/s |
+| 5 | move_forward_distance | 向前移动3米,速度2米每秒 | `move_forward_distance(distance=3.0, speed=2.0)` | 前进3米后自动停止 |
+| 6 | turn_vehicle | 向右转30度 | `turn_vehicle(angle=30.0)` | 方向盘转动,车辆右转 |
+| 7 | turn_vehicle_angle | 调用turn_vehicle_angle函数,设置目标角度为45度,使用默认速度 | `turn_vehicle_angle(target_angle=45.0, speed=0.3)` | 转向45度后自动停止 |
+| 8 | get_current_heading ⭐ | 获取当前车辆朝向 | `get_current_heading()` | 返回朝向角度(0-360°) |
+| 9 | get_current_position ⭐ | 获取当前车辆位置 | `get_current_position()` | 返回位置坐标(x, y) |
+| 10 | move_backward ⭐ | 以2米每秒的速度倒车 | `move_backward(speed=2.0)` | 车辆开始倒车 |
+| 11 | move_backward(distance) ⭐ | 倒车3米,速度1.5米每秒 | `move_backward(speed=1.5, distance=3.0)` | 倒车3米后自动停止 |
+| 12 | get_raw_sensor_data ⭐ | 获取IMU原始传感器数据 | `get_raw_sensor_data(data_type="imu", timeout=1.0)` | 返回JSON格式IMU数据 |
+
+### 传感器模块 (5个工具)
+
+| # | 工具名称 | UI测试指令 | 对应函数 | 预期结果 |
+|---|---------|-----------|---------|---------|
+| 13 | get_gnss_data | 获取GPS位置数据 | `get_gnss_data()` | 返回GPS坐标(x, y, z) |
+| 14 | get_imu_data | 获取IMU数据 | `get_imu_data()` | 返回加速度、陀螺仪、朝向 |
+| 15 | get_vehicle_status | 获取车辆状态 | `get_vehicle_status()` | 返回位置、速度、朝向 |
+| 16 | get_raw_sensor_data ⭐ | 获取GNSS原始传感器数据,超时2秒 | `get_raw_sensor_data(data_type="gnss", timeout=2.0)` | 返回JSON格式GNSS数据 |
+| 17 | close_sensor_connection ⭐ | 关闭传感器连接 | `close_sensor_connection()` | 传感器socket关闭 |
+
+### 仿真管理模块 (3个工具)
+
+| # | 工具名称 | UI测试指令 | 对应函数 | 预期结果 |
+|---|---------|-----------|---------|---------|
+| 18 | start_carla_simulation | 启动CARLA仿真,场景为Town04 | `start_carla_simulation(scenario="Town04")` | CARLA仿真启动 |
+| 19 | get_simulation_status | 获取仿真状态 | `get_simulation_status()` | 返回运行状态和时长 |
+| 20 | stop_carla_simulation | 停止CARLA仿真 | `stop_carla_simulation()` | CARLA仿真停止 |
+
+⭐ = 2026-01-20新增工具
+
+### 推荐测试顺序
+
+**阶段1: 基础功能** (5分钟)
+```
+1. 获取车辆状态 (#15)
+2. 停止车辆 (#3)
+3. 向前移动2米,速度1米每秒 (#5)
+4. 停止车辆 (#3)
+5. 获取当前位置 (#9)
+```
+
+**阶段2: 转向测试** (3分钟)
+```
+6. 获取当前朝向 (#8)
+7. 向右转20度 (#7)
+8. 停止车辆 (#3)
+9. 获取当前朝向 (#8)
+```
+
+**阶段3: 倒车测试** (3分钟)
+```
+10. 倒车2米,速度1米每秒 (#11)
+11. 停止车辆 (#3)
+12. 获取当前位置 (#9)
+```
+
+**阶段4: 传感器测试** (2分钟)
+```
+13. 获取GPS位置数据 (#13)
+14. 获取IMU数据 (#14)
+15. 获取IMU原始传感器数据 (#12)
+```
+
+**阶段5: 综合测试** (5分钟)
+```
+16. 向前移动3米,速度2米每秒 (#5)
+17. 向右转45度 (#7)
+18. 向前移动2米,速度1.5米每秒 (#5)
+19. 倒车1米,速度1米每秒 (#11)
+20. 停止车辆 (#3)
+```
 
 ---
 
@@ -47,25 +133,116 @@ vehicle_carla_test/
 
 ### 启动顺序
 
-#### 1. 启动CARLA服务器
+#### 方法1: 标准启动流程 (推荐)
+
+**终端1: 启动CARLA服务器**
 ```bash
-# 终端1
-cd /path/to/CARLA
-./CarlaUE4.sh
+cd /home/dora/RoboOS/Vehicle/CARLA_Leaderboard_20
+./CarlaUE4.sh -quality-level=Low -windowed -ResX=800 -ResY=600 -benchmark -fps=10
 ```
 
-#### 2. 启动Leaderboard
+**终端2: 启动车辆控制脚本**
 ```bash
-# 终端2
-cd /home/dora/RoboOS/Vehicle/CARLA_Leaderboard_20/leaderboard
-./test_run.sh
+cd /home/dora/RoboOS
+/home/dora/miniforge3/envs/py37/bin/python3 simple_vehicle_control.py
 ```
 
-#### 3. 启动RoboOS系统
+**终端3-6: 启动RoboOS系统**
 ```bash
-# 终端3-6
 cd /home/dora/RoboOS
 ./act-four-terminal.sh
+```
+
+#### 方法2: 简化启动流程 (调试用)
+
+**终端1: 启动CARLA服务器**
+```bash
+cd /home/dora/RoboOS/Vehicle/CARLA_Leaderboard_20
+./CarlaUE4.sh -quality-level=Low -windowed -ResX=800 -ResY=600 -benchmark -fps=10
+```
+
+**终端2: 手动生成车辆**
+```bash
+/home/dora/miniforge3/envs/py37/bin/python3 << 'EOF'
+import sys
+sys.path.append('/home/dora/RoboOS/Vehicle/CARLA_Leaderboard_20/PythonAPI/carla/dist/carla-0.9.14-py3.7-linux-x86_64.egg')
+import carla
+
+client = carla.Client('localhost', 2000)
+client.set_timeout(10.0)
+world = client.get_world()
+
+# 清理旧车辆
+for v in world.get_actors().filter('vehicle.*'):
+    v.destroy()
+
+# 生成新车辆
+bp = world.get_blueprint_library().filter('vehicle.tesla.model3')[0]
+spawn_point = world.get_map().get_spawn_points()[0]
+vehicle = world.spawn_actor(bp, spawn_point)
+print(f"✓ 车辆已生成 (ID: {vehicle.id})")
+print(f"位置: ({spawn_point.location.x:.1f}, {spawn_point.location.y:.1f})")
+EOF
+```
+
+**终端3: 启动简化UDP控制**
+```bash
+/home/dora/miniforge3/envs/py37/bin/python3 /home/dora/RoboOS/simple_udp_vehicle.py
+```
+
+**终端4-7: 启动RoboOS系统**
+```bash
+cd /home/dora/RoboOS
+./act-four-terminal.sh
+```
+
+#### 方法3: 一键后台启动
+
+```bash
+# 启动CARLA (后台)
+cd /home/dora/RoboOS/Vehicle/CARLA_Leaderboard_20
+nohup ./CarlaUE4.sh -quality-level=Low -windowed -ResX=800 -ResY=600 -benchmark -fps=10 > /tmp/carla.log 2>&1 &
+
+# 等待CARLA启动
+sleep 10
+
+# 启动车辆控制 (后台)
+cd /home/dora/RoboOS
+nohup /home/dora/miniforge3/envs/py37/bin/python3 simple_vehicle_control.py > /tmp/vehicle.log 2>&1 &
+
+echo "✓ CARLA和车辆控制已启动"
+echo "查看CARLA日志: tail -f /tmp/carla.log"
+echo "查看车辆日志: tail -f /tmp/vehicle.log"
+
+# 启动RoboOS系统
+cd /home/dora/RoboOS
+./act-four-terminal.sh
+```
+
+#### ⚠️ 已知问题
+
+**问题**: simple_vehicle_control.py可能在初始化时挂起
+
+**症状**:
+- 日志只有CARLA连接警告
+- 无"[控制接收] 正在监听 UDP 23456..."消息
+- 车辆不响应控制命令
+
+**解决方案**:
+1. 使用方法2手动生成车辆
+2. 或者使用simple_udp_vehicle.py替代
+3. 检查CARLA是否正常运行
+
+**验证启动成功**:
+```bash
+# 检查进程
+ps aux | grep -E "(CarlaUE4|simple_vehicle)" | grep -v grep
+
+# 检查CARLA端口
+netstat -tuln | grep 2000
+
+# 检查UDP端口
+netstat -uln | grep 23456
 ```
 
 ### 系统检查

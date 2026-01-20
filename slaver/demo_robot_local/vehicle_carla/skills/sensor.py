@@ -10,14 +10,33 @@ logger = setup_logger("vehicle_sensor")
 class SensorReader:
     """Sensor data reading functionality"""
 
-    def __init__(self, host: str = "192.168.1.101", port: int = 12345):
+    def __init__(self, host: str = "127.0.0.1", port: int = 12347):
+        """
+        Initialize sensor reader
+
+        Args:
+            host: Host to receive data from (default: 127.0.0.1 for local CARLA)
+            port: Port to listen on (default: 12347, matching simple_vehicle_control.py)
+
+        Note: 修改历史
+            - 旧配置: host="192.168.1.101", port=12345 (错误配置)
+            - 新配置: host="127.0.0.1", port=12347 (与 simple_vehicle_control.py 匹配)
+        """
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(2.0)
+
+        # Bind to port to receive sensor data from CARLA
+        try:
+            self.sock.bind(("0.0.0.0", port))
+            logger.info(f"SensorReader initialized and bound to port {port}")
+        except OSError as e:
+            logger.warning(f"Failed to bind to port {port}: {e}. Will try to receive without binding.")
+            logger.info(f"SensorReader initialized: {host}:{port} (no bind)")
+
         self.latest_gnss = None
         self.latest_imu = None
-        logger.info(f"SensorReader initialized: {host}:{port}")
 
     def _receive_sensor_data(self) -> Optional[Dict]:
         """Receive sensor data from UDP"""
@@ -84,6 +103,18 @@ class SensorReader:
         Returns:
             Position, speed, heading
         """
+        # Try to receive fresh sensor data (up to 4 packets to get both GNSS and IMU)
+        for _ in range(4):
+            msg = self._receive_sensor_data()
+            if msg:
+                if msg.get("id") == "gnss":
+                    self.latest_gnss = msg
+                elif msg.get("id") == "imu":
+                    self.latest_imu = msg
+            # Stop if we have both
+            if self.latest_gnss and self.latest_imu:
+                break
+
         status_parts = []
 
         # Get GNSS data
@@ -103,3 +134,46 @@ class SensorReader:
         result = "Vehicle Status - " + ", ".join(status_parts)
         logger.info(result)
         return result
+
+    def get_raw_sensor_data(self, data_type: str, timeout: float = 1.0) -> str:
+        """Get raw sensor data in JSON format
+
+        Args:
+            data_type: "gnss" or "imu"
+            timeout: Timeout in seconds (default 1.0)
+
+        Returns:
+            Raw sensor data as JSON string
+        """
+        import json
+
+        # Set temporary timeout
+        original_timeout = self.sock.gettimeout()
+        self.sock.settimeout(timeout)
+
+        try:
+            data = self._receive_sensor_data()
+            if data and data.get("id") == data_type:
+                logger.info(f"Raw {data_type} data retrieved")
+                return json.dumps(data, indent=2)
+            else:
+                logger.warning(f"Failed to get {data_type} data")
+                return f"Failed to get {data_type} data"
+        finally:
+            # Restore original timeout
+            self.sock.settimeout(original_timeout)
+
+    def close_connection(self) -> str:
+        """Close sensor socket connection
+
+        Returns:
+            Close status
+        """
+        try:
+            if self.sock:
+                self.sock.close()
+                logger.info("Sensor socket closed")
+                return "Sensor connection closed successfully"
+        except Exception as e:
+            logger.error(f"Error closing sensor connection: {e}")
+            return f"Error closing sensor connection: {e}"

@@ -15,6 +15,9 @@ import sys
 from typing import Tuple, Dict
 from vehicle_carla.skills.control import VehicleController
 
+# 导入vehicle_sensor模块的共享sensor_reader
+from . import vehicle_sensor
+
 # 全局车辆控制器实例
 _vehicle_controller = None
 
@@ -23,7 +26,8 @@ def get_vehicle_controller():
     """获取或创建车辆控制器实例"""
     global _vehicle_controller
     if _vehicle_controller is None:
-        _vehicle_controller = VehicleController()
+        # 使用vehicle_sensor模块的共享sensor_reader
+        _vehicle_controller = VehicleController(sensor_reader=vehicle_sensor.get_sensor_reader())
     return _vehicle_controller
 
 
@@ -213,6 +217,132 @@ def register_tools(mcp):
         state_update = {
             "turned_angle": target_angle,
             "turn_speed": speed
+        }
+
+        return result, state_update
+
+    @mcp.tool()
+    async def get_current_heading() -> Tuple[str, Dict]:
+        """Get current vehicle heading quickly.
+
+        Returns:
+            A tuple containing the heading message and heading data.
+
+        Examples:
+            get_current_heading()
+        """
+        print("[vehicle_control.get_current_heading] Getting current heading", file=sys.stderr)
+
+        controller = get_vehicle_controller()
+        result = controller.get_current_heading()
+
+        state_update = {
+            "heading_queried": True
+        }
+
+        return result, state_update
+
+    @mcp.tool()
+    async def get_current_position() -> Tuple[str, Dict]:
+        """Get current vehicle position quickly.
+
+        Returns:
+            A tuple containing the position message and position data.
+
+        Examples:
+            get_current_position()
+        """
+        print("[vehicle_control.get_current_position] Getting current position", file=sys.stderr)
+
+        controller = get_vehicle_controller()
+        result = controller.get_current_position()
+
+        state_update = {
+            "position_queried": True
+        }
+
+        return result, state_update
+
+    @mcp.tool()
+    async def move_backward(speed: float, distance: float = None) -> Tuple[str, Dict]:
+        """Move backward with optional distance control.
+
+        Args:
+            speed: Target speed in m/s
+            distance: Target distance in meters (None for continuous backward)
+
+        Returns:
+            A tuple containing the result message and control state.
+
+        Examples:
+            move_backward(speed=2.0)  # Continuous backward
+            move_backward(speed=2.0, distance=3.0)  # Move backward 3 meters
+        """
+        if distance:
+            print(f"[vehicle_control.move_backward] Moving backward {distance}m at {speed}m/s", file=sys.stderr)
+        else:
+            print(f"[vehicle_control.move_backward] Moving backward at {speed}m/s", file=sys.stderr)
+
+        controller = get_vehicle_controller()
+        result = controller.move_backward(speed, distance)
+
+        throttle = min(speed / 10.0, 1.0)
+        state_update = {
+            "steer": 0.0,
+            "throttle": throttle,
+            "brake": 0.0,
+            "reverse": True,
+            "target_speed": speed
+        }
+        if distance:
+            state_update["distance_traveled"] = distance
+
+        return result, state_update
+
+    @mcp.tool()
+    async def get_raw_sensor_data(data_type: str, timeout: float = 1.0) -> Tuple[str, Dict]:
+        """Get raw sensor data in JSON format.
+
+        Args:
+            data_type: "gnss" or "imu"
+            timeout: Timeout in seconds (default 1.0)
+
+        Returns:
+            A tuple containing the raw sensor data and metadata.
+
+        Examples:
+            get_raw_sensor_data(data_type="imu")
+            get_raw_sensor_data(data_type="gnss", timeout=2.0)
+        """
+        print(f"[vehicle_control.get_raw_sensor_data] Getting raw {data_type} data", file=sys.stderr)
+
+        controller = get_vehicle_controller()
+        result = controller.get_raw_sensor_data(data_type, timeout)
+
+        state_update = {
+            "sensor_type": data_type,
+            "timeout": timeout
+        }
+
+        return result, state_update
+
+    @mcp.tool()
+    async def close_vehicle_connections() -> Tuple[str, Dict]:
+        """Close all vehicle UDP connections.
+
+        Returns:
+            A tuple containing the close status and metadata.
+
+        Examples:
+            close_vehicle_connections()
+        """
+        print("[vehicle_control.close_vehicle_connections] Closing all connections", file=sys.stderr)
+
+        controller = get_vehicle_controller()
+        result = controller.close_connections()
+
+        state_update = {
+            "connections_closed": True
         }
 
         return result, state_update

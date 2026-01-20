@@ -14,15 +14,16 @@ import socket
 import json
 import threading
 import time
+import math
 
 # 网络配置
 UDP_IP = "127.0.0.1"
 UDP_CONTROL_IP = "0.0.0.0"
-UDP_PORT_GNSS_IMU = 12345
+UDP_PORT_GNSS_IMU = 12347  # 改用 12347 避免与 VehicleController 冲突
 UDP_PORT_CONTROL = 23456
 
 # 全局变量
-control_command = {"steer": 0.0, "throttle": 0.0, "brake": 1.0}
+control_command = {"steer": 0.0, "throttle": 0.0, "brake": 1.0, "reverse": False}
 control_lock = threading.Lock()
 sock_gnss_imu = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -41,9 +42,11 @@ def receive_control_loop():
                     control_command["steer"] = float(msg.get("steer", 0.0))
                     control_command["throttle"] = float(msg.get("throttle", 0.0))
                     control_command["brake"] = float(msg.get("brake", 0.0))
+                    control_command["reverse"] = bool(msg.get("reverse", False))
                     print(f"[控制指令] Steer: {control_command['steer']:.2f}, "
                           f"Throttle: {control_command['throttle']:.2f}, "
-                          f"Brake: {control_command['brake']:.2f}")
+                          f"Brake: {control_command['brake']:.2f}, "
+                          f"Reverse: {control_command['reverse']}")
         except Exception as e:
             print(f"[控制接收错误] {e}")
 
@@ -57,29 +60,82 @@ def main():
     current_map = world.get_map().name
     print(f"[CARLA] 当前地图: {current_map}")
 
-    # 如果不是Town04_Opt,则加载
-    if "Town04_Opt" not in current_map:
-        print("[CARLA] 加载Town04_Opt...")
-        client.load_world('Town04_Opt')
-        world = client.get_world()
-        print(f"[CARLA] ✓ 已加载: {world.get_map().name}")
+    # 使用当前地图,不切换场景
+    print(f"[CARLA] ✓ 使用当前地图: {current_map}")
+
+    # 清理旧车辆
+    print("[清理] 检查并删除旧车辆...")
+    existing_vehicles = world.get_actors().filter('vehicle.*')
+    if len(existing_vehicles) > 0:
+        for old_vehicle in existing_vehicles:
+            old_vehicle.destroy()
+            print(f"[清理] ✓ 已删除旧车辆 (ID: {old_vehicle.id})")
+    else:
+        print("[清理] 无旧车辆")
 
     # 获取蓝图库
     blueprint_library = world.get_blueprint_library()
     vehicle_bp = blueprint_library.filter('vehicle.tesla.model3')[0]
 
-    # 获取spawn点
-    spawn_points = world.get_map().get_spawn_points()
+    # 获取spawn点和地图
+    carla_map = world.get_map()
+    spawn_points = carla_map.get_spawn_points()
     if not spawn_points:
         print("[错误] 没有可用的spawn点")
         return
 
-    # Spawn车辆
+    # Spawn车辆 - 使用固定朝向,并居中到车道中间
     spawn_point = spawn_points[0]
+    original_z = spawn_point.location.z  # 保存原始z坐标
+
+    # 获取该位置的车道中心点
+    waypoint = carla_map.get_waypoint(spawn_point.location)
+
+    # 使用车道中心的x,y坐标,保持原始z坐标
+    spawn_point.location = carla.Location(
+        x=waypoint.transform.location.x,
+        y=waypoint.transform.location.y,
+        z=original_z
+    )
+
+    # 设置固定的朝向角度 (yaw=0表示正东方向)
+    FIXED_YAW = 180.0  # 180度=正西方向
+    spawn_point.rotation.yaw = FIXED_YAW
+    spawn_point.rotation.pitch = 0.0
+    spawn_point.rotation.roll = 0.0
+
     print(f"[车辆] Spawning at x={spawn_point.location.x:.2f}, "
           f"y={spawn_point.location.y:.2f}, z={spawn_point.location.z:.2f}")
+    print(f"[车辆] 已居中到车道中间 (车道ID: {waypoint.lane_id})")
+    print(f"[车辆] 固定朝向: Yaw={FIXED_YAW:.1f}°")
     vehicle = world.spawn_actor(vehicle_bp, spawn_point)
     print(f"[车辆] ✓ 已生成 (ID: {vehicle.id})")
+
+    # 等待车辆位置更新
+    time.sleep(0.5)
+    world.tick()  # 强制更新世界状态
+
+    # 设置摄像机跟随视角
+    v_transform = vehicle.get_transform()
+    v_loc = v_transform.location
+    v_rot = v_transform.rotation
+
+    follow_distance = 6.0
+    follow_height = 3.0
+    yaw_rad = math.radians(v_rot.yaw)
+
+    camera_x = v_loc.x - follow_distance * math.cos(yaw_rad)
+    camera_y = v_loc.y - follow_distance * math.sin(yaw_rad)
+    camera_z = v_loc.z + follow_height
+
+    spectator = world.get_spectator()
+    camera_transform = carla.Transform(
+        carla.Location(x=camera_x, y=camera_y, z=camera_z),
+        carla.Rotation(pitch=-15, yaw=v_rot.yaw, roll=0)
+    )
+    spectator.set_transform(camera_transform)
+    print(f"[摄像机] ✓ 已设置跟随视角 (后方{follow_distance}m, 高度{follow_height}m)")
+    print(f"[摄像机] 位置: ({camera_x:.2f}, {camera_y:.2f}, {camera_z:.2f})")
 
     # 添加GNSS传感器
     gnss_bp = blueprint_library.find('sensor.other.gnss')
@@ -139,6 +195,11 @@ def main():
     print("\n按 Ctrl+C 停止...")
     print("="*60 + "\n")
 
+    # 车道信息显示计数器和上次车道信息
+    lane_info_counter = 0
+    last_lane_info = None
+    camera_update_counter = 0
+
     # 主循环 - 应用控制指令
     try:
         while True:
@@ -147,7 +208,47 @@ def main():
                 control.steer = control_command["steer"]
                 control.throttle = control_command["throttle"]
                 control.brake = control_command["brake"]
+                control.reverse = control_command["reverse"]
                 vehicle.apply_control(control)
+
+            # 每2次循环更新一次摄像机位置 (0.1秒)
+            camera_update_counter += 1
+            if camera_update_counter >= 2:
+                v_transform = vehicle.get_transform()
+                v_loc = v_transform.location
+                v_rot = v_transform.rotation
+
+                yaw_rad = math.radians(v_rot.yaw)
+                camera_x = v_loc.x - follow_distance * math.cos(yaw_rad)
+                camera_y = v_loc.y - follow_distance * math.sin(yaw_rad)
+                camera_z = v_loc.z + follow_height
+
+                camera_transform = carla.Transform(
+                    carla.Location(x=camera_x, y=camera_y, z=camera_z),
+                    carla.Rotation(pitch=-15, yaw=v_rot.yaw, roll=0)
+                )
+                spectator.set_transform(camera_transform)
+                camera_update_counter = 0
+
+            # 每秒检查一次车道信息
+            lane_info_counter += 1
+            if lane_info_counter >= 20:  # 20Hz * 1秒 = 20次
+                location = vehicle.get_location()
+                waypoint = carla_map.get_waypoint(location)
+                lane_change_str = {
+                    carla.LaneChange.NONE: "不可变道",
+                    carla.LaneChange.Right: "可右变道",
+                    carla.LaneChange.Left: "可左变道",
+                    carla.LaneChange.Both: "可左右变道"
+                }.get(waypoint.lane_change, "未知")
+
+                # 只在车道信息变化时输出
+                current_lane_info = (waypoint.lane_id, waypoint.lane_width, lane_change_str)
+                if current_lane_info != last_lane_info:
+                    print(f"[车道] ID:{waypoint.lane_id} 宽度:{waypoint.lane_width:.1f}m {lane_change_str}")
+                    last_lane_info = current_lane_info
+
+                lane_info_counter = 0
 
             time.sleep(0.05)  # 20Hz控制频率
 

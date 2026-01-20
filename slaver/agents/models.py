@@ -308,12 +308,39 @@ class OpenAIServerModel(Model):
         tools_to_call_from: Optional[List[str]] = None,
     ) -> ChatMessage:
 
+        # ========== 改进的 Prompt 规则（避免重复执行）==========
+        # 旧规则（已注释）：
+        # 1. 过于严格版本 - 导致 LLM 拒绝执行新任务
+        # content = (
+        #     "Rules:\n"
+        #     "- Only call a tool IF AND ONLY IF the action is required by the task AND has NOT already been completed.\n"
+        #     "- Do NOT call the same tool multiple times for the same object/location.\n"
+        #     "- Do NOT make assumptions beyond the task description.\n\n"
+        # )
+        #
+        # 2. 过于宽松版本 - 导致 LLM 重复执行相同任务
+        # content = (
+        #     "Rules:\n"
+        #     "- Execute the current task as requested.\n"
+        #     "- The Completed Actions list below is for reference only, showing recent operations.\n"
+        #     "- Each new task should be executed unless it would cause an error or conflict.\n"
+        #     "- For motion/action operations (move, turn, etc.), always execute the current task.\n"
+        #     "- For stateful operations (open, close, grasp), check if already done to avoid errors.\n"
+        #     "- Do NOT make assumptions beyond the task description.\n\n"
+        # )
+
+        # 新规则（平衡版本）：既允许新任务，又避免重复执行
         content = (
             "Rules:\n"
-            "- Only call a tool IF AND ONLY IF the action is required by the task AND has NOT already been completed.\n"
-            "- Do NOT call the same tool multiple times for the same object/location.\n"
+            "- Execute the current task as requested.\n"
+            "- Check the Completed Actions list below:\n"
+            "  * If the EXACT same operation (same tool with same parameters) was just completed in the most recent action, return without calling the tool again.\n"
+            "  * If the task has different parameters or is a new operation, execute it.\n"
+            "- For motion/action operations (move, turn, etc.), execute if parameters are different from the last action.\n"
+            "- For stateful operations (open, close, grasp), check if already done to avoid errors.\n"
             "- Do NOT make assumptions beyond the task description.\n\n"
         )
+        # ========================================================
 
         content += f"Task: {task}\n\n"
         if len(current_status) > 0:

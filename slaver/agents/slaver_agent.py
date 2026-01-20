@@ -87,6 +87,23 @@ class MultiStepAgent:
             self.memory.reset()
             self.step_number = 1
 
+            # ========== 方案1: 任务级别的历史清空 ==========
+            # 每个新任务开始时清空历史状态，避免历史污染
+            # 这样可以确保每个任务都是独立执行的
+            try:
+                # 清空当前 robot 的历史状态
+                self.collaborator.clear_agent_status(self.robot_name)
+                logger.info(f"[History Management] Cleared history for new task: {self.robot_name}")
+            except AttributeError:
+                # 如果 collaborator 没有 clear_agent_status 方法，则尝试手动清空
+                # 通过记录空状态来实现清空效果
+                try:
+                    self.collaborator.record_agent_status(self.robot_name, "")
+                    logger.info(f"[History Management] Reset history by recording empty status: {self.robot_name}")
+                except Exception as e:
+                    logger.warning(f"[History Management] Failed to clear history: {e}")
+            # ================================================
+
         self.logger.log_task(
             content=self.task.strip(),
             subtitle=f"{type(self.model).__name__} - {(self.model.model_id if hasattr(self.model, 'model_id') else '')}",
@@ -204,6 +221,16 @@ class ToolCallingAgent(MultiStepAgent):
 
         # Add new step in logs
         current_status = self.collaborator.read_agent_status(self.robot_name)
+
+        # ========== 方案2: 限制历史长度 ==========
+        # 只保留最近 2 条历史记录，防止历史无限累积
+        # 这是一个保险措施，即使方案1失败也能限制历史污染
+        MAX_HISTORY_LENGTH = 2
+        if isinstance(current_status, list) and len(current_status) > MAX_HISTORY_LENGTH:
+            current_status = current_status[-MAX_HISTORY_LENGTH:]
+            logger.info(f"[History Management] Trimmed history to last {MAX_HISTORY_LENGTH} items")
+        # ==========================================
+
         model_message: ChatMessage = self.model(
             task=self.task,
             current_status=current_status,
@@ -229,9 +256,19 @@ class ToolCallingAgent(MultiStepAgent):
             # 尝试从content中解析工具调用(兼容某些模型)
             try:
                 import json
+                import re
                 content = model_message.content.strip()
-                if content.startswith('{') and content.endswith('}'):
-                    tool_data = json.loads(content)
+
+                # 尝试多种格式:
+                # 1. 纯JSON: {"name": "...", "arguments": {...}}
+                # 2. 括号包裹: ({"name": "...", "arguments": {...}})
+                # 3. 带额外文本: ({"name": "..."}) <tool_call>
+
+                # 提取JSON部分
+                json_match = re.search(r'\{[^{}]*"name"[^{}]*"arguments"[^{}]*\{[^}]*\}[^}]*\}', content)
+                if json_match:
+                    json_str = json_match.group(0)
+                    tool_data = json.loads(json_str)
                     if 'name' in tool_data and 'arguments' in tool_data:
                         tool_name = tool_data['name']
                         tool_arguments = tool_data['arguments']
@@ -244,7 +281,7 @@ class ToolCallingAgent(MultiStepAgent):
                         return "final_answer"
                 else:
                     return "final_answer"
-            except (json.JSONDecodeError, AttributeError):
+            except (json.JSONDecodeError, AttributeError, Exception):
                 return "final_answer"
 
         current_call = {"tool_name": tool_name, "tool_arguments": tool_arguments}

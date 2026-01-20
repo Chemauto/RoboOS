@@ -92,4 +92,52 @@ def register_tools(mcp):
 
         return result, state_update
 
+    @mcp.tool()
+    async def get_raw_sensor_data(data_type: str, timeout: float = 1.0) -> Tuple[str, Dict]:
+        """Get raw sensor data in JSON format.
+
+        Args:
+            data_type: "gnss" or "imu"
+            timeout: Timeout in seconds (default 1.0)
+
+        Returns:
+            A tuple containing the raw sensor data and metadata.
+
+        Examples:
+            get_raw_sensor_data(data_type="imu")
+            get_raw_sensor_data(data_type="gnss", timeout=2.0)
+        """
+        print(f"[vehicle_sensor.get_raw_sensor_data] Getting raw {data_type} data", file=sys.stderr)
+
+        sensor_reader = get_sensor_reader()
+        result = sensor_reader.get_raw_sensor_data(data_type, timeout)
+
+        state_update = {
+            "sensor_type": data_type,
+            "timeout": timeout
+        }
+
+        return result, state_update
+
+    @mcp.tool()
+    async def close_sensor_connection() -> Tuple[str, Dict]:
+        """Close sensor socket connection.
+
+        Returns:
+            A tuple containing the close status and metadata.
+
+        Examples:
+            close_sensor_connection()
+        """
+        print("[vehicle_sensor.close_sensor_connection] Closing sensor connection", file=sys.stderr)
+
+        sensor_reader = get_sensor_reader()
+        result = sensor_reader.close_connection()
+
+        state_update = {
+            "connection_closed": True
+        }
+
+        return result, state_update
+
     print("[vehicle_sensor.py] 车辆传感器模块已注册", file=sys.stderr)

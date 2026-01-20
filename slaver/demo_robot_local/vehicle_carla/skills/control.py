@@ -12,38 +12,33 @@ logger = setup_logger("vehicle_control")
 class VehicleController:
     """Vehicle control functionality"""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 23456, sensor_port: int = 12345):
+    def __init__(self, host: str = "127.0.0.1", port: int = 23456, sensor_reader=None):
         self.udp_client = UDPClient(host, port)
-        self.sensor_port = sensor_port
-        self.sensor_sock = None
-
-        # 尝试绑定传感器端口(用于反馈控制)
-        try:
-            self.sensor_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sensor_sock.bind(("0.0.0.0", sensor_port))
-            self.sensor_sock.settimeout(0.1)
-            logger.info(f"VehicleController initialized: {host}:{port}, sensor:{sensor_port}")
-        except Exception as e:
-            logger.warning(f"VehicleController initialized without sensor binding: {e}")
-            logger.info(f"VehicleController initialized: {host}:{port} (no sensor feedback)")
+        self.sensor_reader = sensor_reader
+        logger.info(f"VehicleController initialized: {host}:{port}, sensor_reader={'provided' if sensor_reader else 'none'}")
 
     def _get_sensor_data(self, data_type: str, timeout: float = 1.0):
         """Get sensor data of specific type"""
-        if not self.sensor_sock:
-            logger.warning("Sensor socket not available")
+        if not self.sensor_reader:
+            logger.warning("Sensor reader not available")
             return None
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            try:
-                data, _ = self.sensor_sock.recvfrom(4096)
-                msg = json.loads(data.decode('utf-8'))
-                if msg.get("id") == data_type:
+        # Use sensor_reader's method to get data
+        try:
+            if data_type == "gnss":
+                # Try to get fresh data
+                msg = self.sensor_reader._receive_sensor_data()
+                if msg and msg.get("id") == "gnss":
                     return msg
-            except socket.timeout:
-                continue
-            except Exception as e:
-                logger.error(f"Sensor read error: {e}")
+                # Fallback to cached data
+                return self.sensor_reader.latest_gnss
+            elif data_type == "imu":
+                msg = self.sensor_reader._receive_sensor_data()
+                if msg and msg.get("id") == "imu":
+                    return msg
+                return self.sensor_reader.latest_imu
+        except Exception as e:
+            logger.error(f"Sensor read error: {e}")
         return None
 
     def _get_heading(self) -> float:
@@ -243,3 +238,137 @@ class VehicleController:
         self.udp_client.send_control(0.0, 0.0, 1.0)
         logger.warning("Turn timeout")
         return "Turn timeout"
+
+    def get_current_heading(self) -> str:
+        """Get current vehicle heading quickly
+
+        Returns:
+            Current heading in degrees
+        """
+        heading = self._get_heading()
+        if heading is not None:
+            logger.info(f"Current heading: {heading:.2f}°")
+            return f"Current heading: {heading:.2f} degrees"
+        else:
+            logger.warning("Failed to get heading")
+            return "Failed to get heading"
+
+    def get_current_position(self) -> str:
+        """Get current vehicle position quickly
+
+        Returns:
+            Current position (x, y) coordinates
+        """
+        pos = self._get_position()
+        if pos:
+            logger.info(f"Current position: x={pos[0]:.2f}, y={pos[1]:.2f}")
+            return f"Current position: x={pos[0]:.2f}, y={pos[1]:.2f}"
+        else:
+            logger.warning("Failed to get position")
+            return "Failed to get position"
+
+    def move_backward(self, speed: float, distance: float = None) -> str:
+        """Move backward with optional distance control
+
+        Args:
+            speed: Target speed in m/s
+            distance: Target distance in meters (None for continuous backward)
+
+        Returns:
+            Execution status
+        """
+        if distance is not None:
+            # 带距离反馈的倒车
+            return self._move_backward_distance(distance, speed)
+        else:
+            # 持续倒车
+            throttle = min(speed / 10.0, 1.0)
+            success = self.udp_client.send_control(0.0, throttle, 0.0, reverse=True)
+            if success:
+                logger.info(f"Moving backward: speed={speed:.2f} m/s, throttle={throttle:.2f}")
+                return f"Moving backward at {speed:.2f} m/s (throttle={throttle:.2f})"
+            else:
+                logger.error("Failed to move backward")
+                return "Failed to move backward"
+
+    def _move_backward_distance(self, distance: float, speed: float = 2.0) -> str:
+        """Move backward for specified distance with feedback
+
+        Args:
+            distance: Target distance in meters
+            speed: Speed in m/s (default 2.0)
+
+        Returns:
+            Execution status
+        """
+        throttle = min(speed / 10.0, 1.0)
+
+        # 获取起始位置
+        start_pos = self._get_position()
+        if not start_pos:
+            return "Failed to get starting position"
+
+        logger.info(f"Moving backward {distance:.2f}m at {speed:.2f}m/s from {start_pos}")
+
+        # 持续控制直到达到目标距离
+        max_time = distance / speed * 3  # 最大时间=理论时间*3
+        start_time = time.time()
+
+        while time.time() - start_time < max_time:
+            # 发送倒车控制指令
+            self.udp_client.send_control(0.0, throttle, 0.0, reverse=True)
+
+            # 检查当前位置
+            current_pos = self._get_position()
+            if current_pos:
+                traveled = math.sqrt((current_pos[0] - start_pos[0])**2 +
+                                   (current_pos[1] - start_pos[1])**2)
+
+                if traveled >= distance:
+                    # 到达目标,停车
+                    self.udp_client.send_control(0.0, 0.0, 1.0)
+                    logger.info(f"Reached target: traveled {traveled:.2f}m backward")
+                    return f"Successfully moved {traveled:.2f}m backward"
+
+            time.sleep(0.05)  # 20Hz控制频率
+
+        # 超时,停车
+        self.udp_client.send_control(0.0, 0.0, 1.0)
+        logger.warning("Move backward timeout")
+        return "Move backward timeout"
+
+    def get_raw_sensor_data(self, data_type: str, timeout: float = 1.0) -> str:
+        """Get raw sensor data in JSON format
+
+        Args:
+            data_type: "gnss" or "imu"
+            timeout: Timeout in seconds (default 1.0)
+
+        Returns:
+            Raw sensor data as JSON string
+        """
+        import json
+        data = self._get_sensor_data(data_type, timeout)
+        if data:
+            logger.info(f"Raw {data_type} data retrieved")
+            return json.dumps(data, indent=2)
+        else:
+            logger.warning(f"Failed to get {data_type} data")
+            return f"Failed to get {data_type} data"
+
+    def close_connections(self) -> str:
+        """Close all UDP connections
+
+        Returns:
+            Close status
+        """
+        try:
+            if self.sensor_reader:
+                self.sensor_reader.close_connection()
+                logger.info("Sensor reader closed")
+            self.udp_client.close()
+            logger.info("UDP client closed")
+            return "All connections closed successfully"
+        except Exception as e:
+            logger.error(f"Error closing connections: {e}")
+            return f"Error closing connections: {e}"
