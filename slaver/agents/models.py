@@ -209,6 +209,28 @@ class ToolCall:
 def convert_chat_message(original_message):
     content = original_message.content
 
+    # Try to match function call format: (function_name())
+    func_match = re.search(r'\(([a-zA-Z_][a-zA-Z0-9_]*)\(\)\)', content)
+    if func_match:
+        function_name = func_match.group(1)
+        return ChatMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id=f"call_{uuid.uuid4().hex}",
+                    type="function",
+                    function=FunctionCall(
+                        name=function_name,
+                        arguments=json.dumps({}),
+                        description=None,
+                    ),
+                )
+            ],
+            raw=None,
+        )
+
+    # Try to match JSON format
     json_match = re.search(r"```json\n(.*?)\n```", content, flags=re.DOTALL)
     if json_match:
         json_str = json_match.group(1).strip()
@@ -353,7 +375,7 @@ class OpenAIServerModel(Model):
             "n": 1,
             "temperature": 0,
             "top_p": 1.0,
-            "max_tokens": 8192,
+            "max_tokens": 6000,
         }
 
         if stop_sequences is not None:

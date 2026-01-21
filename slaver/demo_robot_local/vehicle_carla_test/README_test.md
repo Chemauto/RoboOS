@@ -22,6 +22,7 @@
 | 5 | move_forward_distance | 向前移动3米,速度2米每秒 | `move_forward_distance(distance=3.0, speed=2.0)` | 前进3米后自动停止 |
 | 6 | turn_vehicle | 向右转30度 | `turn_vehicle(angle=30.0)` | 方向盘转动,车辆右转 |
 | 7 | turn_vehicle_angle | 调用turn_vehicle_angle函数,设置目标角度为45度,使用默认速度 | `turn_vehicle_angle(target_angle=45.0, speed=0.3)` | 转向45度后自动停止 |
+以下没验证功能
 | 8 | get_current_heading ⭐ | 获取当前车辆朝向 | `get_current_heading()` | 返回朝向角度(0-360°) |
 | 9 | get_current_position ⭐ | 获取当前车辆位置 | `get_current_position()` | 返回位置坐标(x, y) |
 | 10 | move_backward ⭐ | 以2米每秒的速度倒车 | `move_backward(speed=2.0)` | 车辆开始倒车 |
